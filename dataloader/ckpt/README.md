@@ -1,1 +1,0 @@
-Store the trained model in this folder or use your own path.
