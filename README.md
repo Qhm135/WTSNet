@@ -1,9 +1,11 @@
 WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation**
 
 
-WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation**
-Haiming Qu, Yunhui Luo*, Chongbao Zhao, Minxuan He, Qing Wang
+WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation
+Haiming Qu, Guiling Hu, Chongbao Zhao, Minxuan He, MingYu Shang,Yunhui Luo*,Qianqian Xu
 State Key Laboratory of Green Papermaking and Resource Recycling, Qilu University of Technology (Shandong Academy of Sciences)
+Jining Goldwater Science & Technology Co., Ltd, Jining, China.
+
 *Corresponding author: [Lyh@qlu.edu.cn](mailto:Lyh@qlu.edu.cn)
 
 📘 Paper link: [https://github.com/Qhm135/WTSNet](https://github.com/Qhm135/WTSNet)
@@ -32,7 +34,7 @@ The network consists of the following modules:
 5. Cross-Scale Fusion & Disparity Regression – Produces the final dense disparity map.
 
 <p align="center">
-  <img src="https://github.com/Qhm135/WTSNet/WTSNet.png?raw=true" width="600">
+  <img src="https://github.com/Qhm135/WTSNet.png?raw=true" width="600">
 </p>
 
 ---
