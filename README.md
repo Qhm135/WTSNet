@@ -102,12 +102,13 @@ If you find this work useful, please cite:
 
 ```bibtex
 @article{qu2025wtsnet,
-  title={WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation},
-  author={Qu, Haiming and Luo, Yunhui and Zhao, Chongbao and He, Minxuan and Wang, Qing},
-  journal={Under Review},
-  year={2025},
-  url={https://github.com/Qhm135/WTSNet}
+title={WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation},
+author={Qu, Haiming and Hu, Guiling and Zhao, Chongbao and He, Minxuan and Shang, Mingyu and Luo, Yunhui and Xu, Qianqian},
+journal={Under Review},
+year={2025},
+url={[https://github.com/Qhm135/WTSNet}](https://github.com/Qhm135/WTSNet})
 }
+
 ```
 
 ---
