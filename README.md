@@ -32,7 +32,7 @@ The network consists of the following modules:
 5. Cross-Scale Fusion & Disparity Regression – Produces the final dense disparity map.
 
 <p align="center">
-  <img src="https://github.com/Qhm135/WTSNet/blob/main/docs/architecture.png?raw=true" width="600">
+  <img src="https://github.com/Qhm135/WTSNet/WTSNet.png?raw=true" width="600">
 </p>
 
 ---
