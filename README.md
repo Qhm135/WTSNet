@@ -12,7 +12,7 @@ State Key Laboratory of Green Papermaking and Resource Recycling, Qilu Universit
 
 🧠 Introduction
 
-WTSNet is a high-accuracy stereo matching network designed to improve disparity estimation by jointly leveraging **wavelet-based multi-frequency analysis** and **superpixel-based structural guidance**.
+WTSNet is a high-accuracy stereo matching network designed to improve disparity estimation by jointly leveraging wavelet-based multi-frequency analysis and superpixel-based structural guidance.
 
 The Wavelet Transform-based Module (WTM) decomposes images into four frequency sub-bands (LL, LH, HL, HH) with learnable filters and sub-band attention, enhancing both global and local feature representation.
 The Superpixel Segmentation Module (SSM) generates edge probability maps to guide disparity estimation along structural boundaries, improving edge precision.
