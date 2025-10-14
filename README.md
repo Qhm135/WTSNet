@@ -1,7 +1,9 @@
 WTSNet: An Accurate Stereo Matching Network Based on Wavelet Transform and Superpixel Segmentation
 
 Haiming Qu,Yunhui Luo*, Guiling Hu, Chongbao Zhao, Minxuan He, MingYu Shang, Qianqian Xu
+
 State Key Laboratory of Green Papermaking and Resource Recycling, Qilu University of Technology (Shandong Academy of Sciences)
+
 Jining Goldwater Science & Technology Co., Ltd, Jining, China.
 
 *Corresponding author: [Lyh@qlu.edu.cn](mailto:Lyh@qlu.edu.cn)
