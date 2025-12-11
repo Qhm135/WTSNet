@@ -1157,14 +1157,13 @@ class hourglass_2d_att(nn.Module):
 #         HH = torch.stack(subbands['HH'], dim=1).view(batch_size, channels, -1, width // 2)
 
 #         LH, HL, HH = self.attention(LH, HL, HH)
-#         # 拼接所有子带 [B,12,H/2,W/2]
 #         dwt_output = torch.cat([LL, LH, HL, HH], dim=1)
 #         return dwt_output
 
 class DWTModule(nn.Module):
     def __init__(self, wave='haar'):
         super().__init__()
-        # 可学习的滤波器组
+
         self.ll_weight = nn.Parameter(torch.tensor([[0.5, 0.5], [0.5, 0.5]], dtype=torch.float32))
         self.lh_weight = nn.Parameter(torch.tensor([[-0.5, -0.5], [0.5, 0.5]], dtype=torch.float32))
         self.hl_weight = nn.Parameter(torch.tensor([[-0.5, 0.5], [-0.5, 0.5]], dtype=torch.float32))
