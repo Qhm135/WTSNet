@@ -155,7 +155,7 @@ def main():
     for epoch in range(1, args.epochs + 1):
         adjust_learning_rate(optimizer, epoch)
 
-        # 初始化累计变量
+        
         total_train_loss = 0
         total_times = 0
         total_epe = 0
@@ -165,7 +165,7 @@ def main():
         total_T3 = 0
         adjust_learning_rate(optimizer, epoch)
 
-        # 训练阶段
+       
         for batch_idx, (imgL_crop, imgR_crop, disp_crop_L,dwt_img) in tqdm(enumerate(TrainImgLoader)):
             loss = train(imgL_crop, imgR_crop, disp_crop_L,dwt_img)
             total_train_loss += loss
@@ -192,7 +192,7 @@ def main():
         print(
             'average time = %.3f, average epe = %.3f, average D1_t = %.3f, average T1 = %.3f, average T2 = %.3f, average T3 = %.3f'
             % (val_time, val_epe, val_D1_t, val_T1, val_T2, val_T3))
-        # 保存最优模型
+      
         if val_D1_t < min_D1:
             min_D1 = val_D1_t
             min_D1_epoch = epoch
@@ -205,7 +205,7 @@ def main():
                 'test_loss': val_D1_t,
             }, savefilename)
 
-        # 记录 TensorBoard 日志
+
         writer.add_scalar('Train_loss', train_loss, epoch)
         writer.add_scalar('val_D1_t', val_D1_t, epoch)
         writer.add_scalar('val_epe', val_epe, epoch)
