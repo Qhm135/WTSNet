@@ -1161,142 +1161,86 @@ class hourglass_2d_att(nn.Module):
 #         return dwt_output
 
 class DWTModule(nn.Module):
-    def __init__(self, wave='haar'):
+    """
+    Learnable Wavelet Transform Module (WTM)
+    Outputs frequency-aware sub-bands:
+        - low  : LL
+        - mid  : LH + HL
+        - high : HH
+    """
+    def __init__(self):
         super().__init__()
 
-        self.ll_weight = nn.Parameter(torch.tensor([[0.5, 0.5], [0.5, 0.5]], dtype=torch.float32))
-        self.lh_weight = nn.Parameter(torch.tensor([[-0.5, -0.5], [0.5, 0.5]], dtype=torch.float32))
-        self.hl_weight = nn.Parameter(torch.tensor([[-0.5, 0.5], [-0.5, 0.5]], dtype=torch.float32))
-        self.hh_weight = nn.Parameter(torch.tensor([[0.5, -0.5], [-0.5, 0.5]], dtype=torch.float32))
+        # Learnable Haar-like filters
+        self.ll_weight = nn.Parameter(torch.tensor([[0.5, 0.5],
+                                                    [0.5, 0.5]]))
+        self.lh_weight = nn.Parameter(torch.tensor([[-0.5, -0.5],
+                                                    [ 0.5,  0.5]]))
+        self.hl_weight = nn.Parameter(torch.tensor([[-0.5,  0.5],
+                                                    [-0.5,  0.5]]))
+        self.hh_weight = nn.Parameter(torch.tensor([[ 0.5, -0.5],
+                                                    [-0.5,  0.5]]))
 
-        self.subband_attention = nn.Sequential(
-            nn.Conv2d(12, 12, 3, padding=1, groups=3),
-            nn.ReLU(),
-            nn.Conv2d(12, 12, 1),
+        # Sub-band attention (paper-consistent)
+        self.att_low  = nn.Sequential(
+            nn.Conv2d(3, 3, kernel_size=1, bias=True),
+            nn.Sigmoid()
+        )
+        self.att_mid  = nn.Sequential(
+            nn.Conv2d(6, 6, kernel_size=1, bias=True),
+            nn.Sigmoid()
+        )
+        self.att_high = nn.Sequential(
+            nn.Conv2d(3, 3, kernel_size=1, bias=True),
             nn.Sigmoid()
         )
 
-        self.subband_fusion = nn.Sequential(
-            nn.Conv2d(12, 24, 3, padding=1),
-            nn.ReLU(),
-            nn.Conv2d(24, 12, 3, padding=1),
-            nn.GroupNorm(4, 12)
-        )
-    # def __init__(self):
-    #     super().__init__()
-    #     self.register_buffer('ll_weight', torch.tensor([[0.5, 0.5], [0.5, 0.5]], dtype=torch.float32))
-    #     self.register_buffer('lh_weight', torch.tensor([[-0.5, -0.5], [0.5, 0.5]], dtype=torch.float32))
-    #     self.register_buffer('hl_weight', torch.tensor([[-0.5, 0.5], [-0.5, 0.5]], dtype=torch.float32))
-    #     self.register_buffer('hh_weight', torch.tensor([[0.5, -0.5], [-0.5, 0.5]], dtype=torch.float32))
-    #
-    #     self.subband_attention = nn.Sequential(
-    #         nn.Conv2d(12, 12, 3, padding=1, groups=3),
-    #         nn.ReLU(),
-    #         nn.Conv2d(12, 12, 1),
-    #         nn.Sigmoid()
-    #     )
-    #     self.subband_fusion = nn.Sequential(
-    #         nn.Conv2d(12, 24, 3, padding=1),
-    #         nn.ReLU(),
-    #         nn.Conv2d(24, 12, 3, padding=1),
-    #         nn.GroupNorm(4, 12)
-    #     )
-
     def forward(self, x):
+        """
+        Args:
+            x: [B, 3, H, W] left image
+        Returns:
+            dict with keys ['low', 'mid', 'high']
+        """
         B, C, H, W = x.shape
-        assert C == 3
+        assert C == 3, "DWTModule expects RGB input"
 
+        # Padding to even size
         pad_h = (2 - H % 2) % 2
         pad_w = (2 - W % 2) % 2
         x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-        x = x.view(B * C, 1, H + pad_h, W + pad_w)
-        x = F.unfold(x, kernel_size=2, stride=2)  # [B*C, 4, (H+pad_h)*(W+pad_w)/4]
 
-        LL = F.linear(x.transpose(1, 2), self.ll_weight.view(1, 4)).transpose(1, 2)
-        LH = F.linear(x.transpose(1, 2), self.lh_weight.view(1, 4)).transpose(1, 2)
-        HL = F.linear(x.transpose(1, 2), self.hl_weight.view(1, 4)).transpose(1, 2)
-        HH = F.linear(x.transpose(1, 2), self.hh_weight.view(1, 4)).transpose(1, 2)
+        Hp, Wp = H + pad_h, W + pad_w
 
-        def reshape_subband(sub, h, w):
-            return sub.view(B, C, (h + pad_h) // 2, (w + pad_w) // 2)
+        # Unfold: [B*C, 4, H/2*W/2]
+        x = x.view(B * C, 1, Hp, Wp)
+        patches = F.unfold(x, kernel_size=2, stride=2)
 
-        LL = reshape_subband(LL, H, W)
-        LH = reshape_subband(LH, H, W)
-        HL = reshape_subband(HL, H, W)
-        HH = reshape_subband(HH, H, W)
+        # Linear projection = wavelet transform
+        def apply_filter(weight):
+            return F.linear(
+                patches.transpose(1, 2),
+                weight.view(1, 4)
+            ).transpose(1, 2)
 
-        dwt_out = torch.cat([LL, LH, HL, HH], dim=1)
-        dwt_out = dwt_out * self.subband_attention(dwt_out)
-        dwt_out = self.subband_fusion(dwt_out)
+        LL = apply_filter(self.ll_weight)
+        LH = apply_filter(self.lh_weight)
+        HL = apply_filter(self.hl_weight)
+        HH = apply_filter(self.hh_weight)
 
-        return dwt_out
+        def reshape(sub):
+            return sub.view(B, C, Hp // 2, Wp // 2)
 
-class DWTFeatureFusion(nn.Module):
-    def __init__(self, feat_channels, dwt_channels):
-        super().__init__()
-        self.feat_conv = nn.Sequential(
-            convbn(feat_channels, feat_channels, 3, 1, 1),
-            nn.ReLU()
-        )
-        self.dwt_conv = nn.Sequential(
-            convbn(dwt_channels, feat_channels, 3, 1, 1),
-            nn.ReLU()
-        )
-        self.attention = nn.Sequential(
-            nn.Conv2d(feat_channels * 2, feat_channels // 2, 1),
-            nn.ReLU(),
-            nn.Conv2d(feat_channels // 2, feat_channels * 2, 1),
-            nn.Sigmoid()
-        )
+        LL, LH, HL, HH = map(reshape, [LL, LH, HL, HH])
 
-    def forward(self, feat, dwt_feat):
-        feat_out = self.feat_conv(feat)
-        dwt_out = self.dwt_conv(dwt_feat)
+        # Frequency-aware attention
+        low  = LL * self.att_low(LL)
+        mid  = torch.cat([LH, HL], dim=1)
+        mid  = mid * self.att_mid(mid)
+        high = HH * self.att_high(HH)
 
-        combined = torch.cat([feat_out, dwt_out], dim=1)
-        attention = self.attention(combined)
-        att_feat, att_dwt = torch.chunk(attention, 2, dim=1)
-
-        return feat_out * att_feat + dwt_out * att_dwt
-
-# class DWTModule(nn.Module):
-#     def __init__(self):
-#         super().__init__()
-#         self.ll_weight = nn.Parameter(torch.tensor([[0.5, 0.5], [0.5, 0.5]], dtype=torch.float32))
-#         self.lh_weight = nn.Parameter(torch.tensor([[-0.5, -0.5], [0.5, 0.5]], dtype=torch.float32))
-#         self.hl_weight = nn.Parameter(torch.tensor([[-0.5, 0.5], [-0.5, 0.5]], dtype=torch.float32))
-#         self.hh_weight = nn.Parameter(torch.tensor([[0.5, -0.5], [-0.5, 0.5]], dtype=torch.float32))
-
-#         self.subband_fusion = nn.Sequential(
-#             nn.Conv2d(12, 24, 3, padding=1),
-#             nn.ReLU(),
-#             nn.Conv2d(24, 12, 3, padding=1),
-#             nn.GroupNorm(4, 12)
-#         )
-#
-#     def forward(self, x):
-#         B, C, H, W = x.shape
-#         assert C == 3
-#         pad_h = (2 - H % 2) % 2
-#         pad_w = (2 - W % 2) % 2
-#         x = F.pad(x, (0, pad_w, 0, pad_h), mode='reflect')
-#         x = x.view(B * C, 1, H + pad_h, W + pad_w)
-#         x = F.unfold(x, kernel_size=2, stride=2)
-#
-#         LL = F.linear(x.transpose(1, 2), self.ll_weight.view(1, 4)).transpose(1, 2)
-#         LH = F.linear(x.transpose(1, 2), self.lh_weight.view(1, 4)).transpose(1, 2)
-#         HL = F.linear(x.transpose(1, 2), self.hl_weight.view(1, 4)).transpose(1, 2)
-#         HH = F.linear(x.transpose(1, 2), self.hh_weight.view(1, 4)).transpose(1, 2)
-#
-#         def reshape_subband(sub, h, w):
-#             return sub.view(B, C, (h + pad_h) // 2, (w + pad_w) // 2)
-#
-#         LL = reshape_subband(LL, H, W)
-#         LH = reshape_subband(LH, H, W)
-#         HL = reshape_subband(HL, H, W)
-#         HH = reshape_subband(HH, H, W)
-#
-#         dwt_out = torch.cat([LL, LH, HL, HH], dim=1)
-#         dwt_out = self.subband_fusion(dwt_out)
-#
-#         return dwt_out
+        return {
+            'low': low,
+            'mid': mid,
+            'high': high
+        }
