@@ -45,7 +45,7 @@ class TANet(nn.Module):
         self.classif_weight = nn.Sequential(convbn(12, 12, 3, 1, 1),
                                             nn.ReLU(inplace=True))
         #self.get_superpixel = MySlic()
-
+        self.dwt = DWTModule()
         self.dres_s = hourglass_2d_cbam(12)
         self.dres_m = hourglass_2d_cam(24)
         self.dres_l = hourglass_2d_cam(48)
@@ -90,6 +90,7 @@ class TANet(nn.Module):
                 nn.Conv2d(128, 128, 1)
             )
         })
+        
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -143,43 +144,67 @@ class TANet(nn.Module):
         cost = self.corr_costvolume_s(left_feature, right_feature) * weight
         return cost
 
-    def forward(self, left, right,dwt_img):
+    def forward(self, left, right, dwt_img):
 
+    left_feature = self.feature_extraction(left)
+    left_feature = self.mylayer(left_feature)
 
-        left_feature = self.feature_extraction(left)
-        left_feature = self.mylayer(left_feature)
-        right_feature = self.feature_extraction(right)
-        right_feature = self.mylayer(right_feature)
+    right_feature = self.feature_extraction(right)
+    right_feature = self.mylayer(right_feature)
 
+    dwt_feats = self.dwt(dwt_img)
 
-        l_f_l, l_f_m, l_f_s = self.fpn(left_feature)
-        r_f_l, r_f_m, r_f_s = self.fpn(right_feature)
+    l_f_l, l_f_m, l_f_s = self.fpn(left_feature)
+    r_f_l, r_f_m, r_f_s = self.fpn(right_feature)
 
-        cost_s = self.corr_costvolume_s(l_f_s, r_f_s)
-        cost_m = self.corr_costvolume_m(l_f_m, r_f_m)
+    cost_s = self.corr_costvolume_s(l_f_s, r_f_s)
+    cost_m = self.corr_costvolume_m(l_f_m, r_f_m)
+    cost_l_corr = self.corr_costvolume_l(l_f_l, r_f_l)
 
+    dwt_s = F.interpolate(
+        dwt_feats['high'],
+        size=cost_s.shape[-2:],
+        mode='bilinear',
+        align_corners=False
+    )
+    dwt_s = self.conv_hh_adjust(dwt_s)
+    cost_s = cost_s + dwt_s
 
-        cost_l =  cost_l_corr
+    dwt_m = F.interpolate(
+        dwt_feats['mid'],
+        size=cost_m.shape[-2:],
+        mode='bilinear',
+        align_corners=False
+    )
+    dwt_m = self.conv_lh_hl_adjust(dwt_m)
+    cost_m = cost_m + dwt_m
 
-        out_s = self.dres_s(cost_s)
-        out_m = self.dres_m(cost_m)
-        out_l = self.dres_l(cost_l)
+    dwt_l = F.interpolate(
+        dwt_feats['low'],
+        size=cost_l_corr.shape[-2:],
+        mode='bilinear',
+        align_corners=False
+    )
+    dwt_l = self.conv_ll_adjust(dwt_l)
+    cost_l = cost_l_corr + dwt_l
 
-        out_s = F.interpolate(out_s, (out_m.size(2), out_m.size(3)), mode='bilinear')
-        out_s = self.ffm_m_layer1(out_s)
-        out_m1 = out_m + out_s * self.ffm_m_layer2(out_s + out_m)
-        out_m1 = F.interpolate(out_m1, (out_l.size(2), out_l.size(3)), mode='bilinear')
+    out_s = self.dres_s(cost_s)
+    out_m = self.dres_m(cost_m)
+    out_l = self.dres_l(cost_l)
 
-        out_m1 = self.ffm_l_layer1(out_m1)
-        out_l1 = out_l + out_m1 * self.ffm_l_layer2(out_m1 + out_l)
+    out_s = F.interpolate(out_s, (out_m.size(2), out_m.size(3)), mode='bilinear', align_corners=False)
+    out_s = self.ffm_m_layer1(out_s)
+    out_m1 = out_m + out_s * self.ffm_m_layer2(out_s + out_m)
 
-        out_l1 = self.classif_l(out_l1)
-        out_l1 = F.interpolate(out_l1, (left.size(2), left.size(3)), mode='bilinear')
+    out_m1 = F.interpolate(out_m1, (out_l.size(2), out_l.size(3)), mode='bilinear', align_corners=False)
+    out_m1 = self.ffm_l_layer1(out_m1)
+    out_l1 = out_l + out_m1 * self.ffm_l_layer2(out_m1 + out_l)
 
-        pred = F.softmax(out_l1, dim=1)
-        pred = disparityregression(self.maxdisp)(pred)
+    out_l1 = self.classif_l(out_l1)
+    out_l1 = F.interpolate(out_l1, (left.size(2), left.size(3)), mode='bilinear', align_corners=False)
 
-        return pred
+    prob = F.softmax(out_l1, dim=1)
+    pred = disparityregression(self.maxdisp)(prob)
 
-
+    return pred
 
