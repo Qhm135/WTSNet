@@ -70,9 +70,22 @@ class TANet(nn.Module):
                                        nn.ReLU(inplace=True),
                                        nn.Conv2d(48, self.maxdisp, kernel_size=3, padding=1, stride=1, bias=False))
 
-        self.conv_hh_adjust = nn.Conv2d(in_channels=32, out_channels=12, kernel_size=1)
-        self.conv_lh_hl_adjust = nn.Conv2d(in_channels=32, out_channels=24, kernel_size=1)
-        self.conv_ll_adjust = nn.Conv2d(in_channels=32, out_channels=48, kernel_size=1)
+        self.conv_hh_adjust = nn.Sequential(
+            nn.Conv2d(3, 12, kernel_size=1, bias=False),
+            nn.BatchNorm2d(12),
+            nn.ReLU(inplace=True)
+        )
+        self.conv_lh_hl_adjust = nn.Sequential(
+            nn.Conv2d(6, 24, kernel_size=1, bias=False),
+            nn.BatchNorm2d(24),
+            nn.ReLU(inplace=True)
+        )
+        self.conv_ll_adjust = nn.Sequential(
+            nn.Conv2d(3, 48, kernel_size=1, bias=False),
+            nn.BatchNorm2d(48),
+            nn.ReLU(inplace=True)
+        )
+        
         self.dwt_adapter = nn.ModuleDict({
             'high': nn.Sequential(
                 nn.Conv2d(12, 32, 3, padding=1),
