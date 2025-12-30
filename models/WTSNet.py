@@ -10,17 +10,19 @@ from .submodule import *
 from .submodule import MySlic
 from .submodule import DWTModule
 
+
 class TANet(nn.Module):
-    def __init__(self, maxdisp):
-        super(TANet, self).__init__()
-        self.maxdisp = maxdisp
+    def __init__(self, args):
+        super().__init__()
+        self.maxdisp = args.maxdisp
+        self.args = args
         self.feature_extraction = feature_extraction()
         self.fpn = FeaturePyrmaid()
         self.dwt_adjust = nn.Sequential(
             nn.Conv2d(12, 32, 1),
             nn.ReLU(inplace=True)
         )
-        self.mylayer = nn.Sequential(convbn(320, 128, 3, 1, 1),  # 从320维降维到32维
+        self.mylayer = nn.Sequential(convbn(320, 128, 3, 1, 1),
                                      nn.ReLU(inplace=True),
                                      nn.Conv2d(128, 32, kernel_size=1, padding=0, stride=1, bias=False))
 
@@ -34,7 +36,7 @@ class TANet(nn.Module):
         )
 
         self.sp_combine = nn.Sequential(convbn(33, 32, 1, 1, 0),
-                                          nn.Sigmoid(),
+                                        nn.Sigmoid(),
                                         # nn.Dropout(p=0.1)
                                         )
 
@@ -44,7 +46,7 @@ class TANet(nn.Module):
         self.get_weight2 = hourglass_2d_cbam_sigmoid(12)
         self.classif_weight = nn.Sequential(convbn(12, 12, 3, 1, 1),
                                             nn.ReLU(inplace=True))
-        #self.get_superpixel = MySlic()
+        self.get_superpixel = MySlic()
         self.dwt = DWTModule()
         self.dres_s = hourglass_2d_cbam(12)
         self.dres_m = hourglass_2d_cam(24)
@@ -85,7 +87,10 @@ class TANet(nn.Module):
             nn.BatchNorm2d(48),
             nn.ReLU(inplace=True)
         )
-        
+        self.sp_combine = nn.Sequential(
+            nn.Conv2d(33, 32, 1),
+            nn.ReLU(inplace=True)
+        )
         self.dwt_adapter = nn.ModuleDict({
             'high': nn.Sequential(
                 nn.Conv2d(12, 32, 3, padding=1),
@@ -103,7 +108,6 @@ class TANet(nn.Module):
                 nn.Conv2d(128, 128, 1)
             )
         })
-        
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -126,8 +130,10 @@ class TANet(nn.Module):
         batch_disp = disp[:, None, :, :, :].repeat(1, maxdisp * 2 - 1, 1, 1, 1).view(-1, 1, size[-2], size[-1])
         batch_shift = torch.arange(-maxdisp + 1, maxdisp, device='cuda').repeat(size[0])[:, None, None, None] * stride
         batch_disp = batch_disp - batch_shift.float()
-        batch_feat_l = feat_l[:, None, :, :, :].repeat(1, maxdisp * 2 - 1, 1, 1, 1).view(-1, size[-3], size[-2],                                                                                   size[-1])
-        batch_feat_r = feat_r[:, None, :, :, :].repeat(1, maxdisp * 2 - 1, 1, 1, 1).view(-1, size[-3], size[-2],                                                                                    size[-1])
+        batch_feat_l = feat_l[:, None, :, :, :].repeat(1, maxdisp * 2 - 1, 1, 1, 1).view(-1, size[-3], size[-2],
+                                                                                         size[-1])
+        batch_feat_r = feat_r[:, None, :, :, :].repeat(1, maxdisp * 2 - 1, 1, 1, 1).view(-1, size[-3], size[-2],
+                                                                                         size[-1])
         cost = torch.norm(batch_feat_l - self.warp(batch_feat_r, batch_disp), 1, 1)
         cost = cost.view(size[0], -1, size[2], size[3])
         return cost.contiguous()
@@ -152,72 +158,83 @@ class TANet(nn.Module):
         output = nn.functional.grid_sample(x, vgrid)
         return output
 
-
     def cost_with_predisp(self, left_feature, right_feature, weight=None):
         cost = self.corr_costvolume_s(left_feature, right_feature) * weight
         return cost
 
     def forward(self, left, right, dwt_img):
 
-    left_feature = self.feature_extraction(left)
-    left_feature = self.mylayer(left_feature)
+      left_feature = self.feature_extraction(left)
+      left_feature = self.mylayer(left_feature)
 
-    right_feature = self.feature_extraction(right)
-    right_feature = self.mylayer(right_feature)
+      right_feature = self.feature_extraction(right)
+      right_feature = self.mylayer(right_feature)
 
-    dwt_feats = self.dwt(dwt_img)
+      edge_l = self.get_superpixel(left)
+      edge_r = self.get_superpixel(right)
 
-    l_f_l, l_f_m, l_f_s = self.fpn(left_feature)
-    r_f_l, r_f_m, r_f_s = self.fpn(right_feature)
 
-    cost_s = self.corr_costvolume_s(l_f_s, r_f_s)
-    cost_m = self.corr_costvolume_m(l_f_m, r_f_m)
-    cost_l_corr = self.corr_costvolume_l(l_f_l, r_f_l)
+      dwt_feats = self.dwt(dwt_img)
 
-    dwt_s = F.interpolate(
+      l_f_l, l_f_m, l_f_s = self.fpn(left_feature)
+      r_f_l, r_f_m, r_f_s = self.fpn(right_feature)
+
+      edge_l_l = F.interpolate(edge_l, size=l_f_l.shape[-2:], mode='bilinear', align_corners=False)
+      edge_r_l = F.interpolate(edge_r, size=r_f_l.shape[-2:], mode='bilinear', align_corners=False)
+
+      l_f_l_enh = torch.cat([l_f_l, edge_l_l], dim=1)  # 32 + 1 = 33
+      r_f_l_enh = torch.cat([r_f_l, edge_r_l], dim=1)
+
+      l_f_l_enh = self.sp_combine(l_f_l_enh)  # → 32
+      r_f_l_enh = self.sp_combine(r_f_l_enh)
+
+      cost_s = self.corr_costvolume_s(l_f_s, r_f_s)
+      cost_m = self.corr_costvolume_m(l_f_m, r_f_m)
+      cost_l_corr = self.corr_costvolume_l(l_f_l_enh, r_f_l_enh)
+
+      dwt_s = F.interpolate(
         dwt_feats['high'],
-        size=cost_s.shape[-2:],
-        mode='bilinear',
-        align_corners=False
-    )
-    dwt_s = self.conv_hh_adjust(dwt_s)
-    cost_s = cost_s + dwt_s
+         size=cost_s.shape[-2:],
+         mode='bilinear',
+         align_corners=False
+       )
+      dwt_s = self.conv_hh_adjust(dwt_s)
+      cost_s = cost_s + dwt_s
 
-    dwt_m = F.interpolate(
-        dwt_feats['mid'],
-        size=cost_m.shape[-2:],
-        mode='bilinear',
-        align_corners=False
-    )
-    dwt_m = self.conv_lh_hl_adjust(dwt_m)
-    cost_m = cost_m + dwt_m
+      dwt_m = F.interpolate(
+         dwt_feats['mid'],
+         size=cost_m.shape[-2:],
+         mode='bilinear',
+         align_corners=False
+     )
+      dwt_m = self.conv_lh_hl_adjust(dwt_m)
+      cost_m = cost_m + dwt_m
 
-    dwt_l = F.interpolate(
+      dwt_l = F.interpolate(
         dwt_feats['low'],
         size=cost_l_corr.shape[-2:],
         mode='bilinear',
         align_corners=False
     )
-    dwt_l = self.conv_ll_adjust(dwt_l)
-    cost_l = cost_l_corr + dwt_l
+      dwt_l = self.conv_ll_adjust(dwt_l)
+      cost_l = cost_l_corr + dwt_l
 
-    out_s = self.dres_s(cost_s)
-    out_m = self.dres_m(cost_m)
-    out_l = self.dres_l(cost_l)
+      out_s = self.dres_s(cost_s)
+      out_m = self.dres_m(cost_m)
+      out_l = self.dres_l(cost_l)
 
-    out_s = F.interpolate(out_s, (out_m.size(2), out_m.size(3)), mode='bilinear', align_corners=False)
-    out_s = self.ffm_m_layer1(out_s)
-    out_m1 = out_m + out_s * self.ffm_m_layer2(out_s + out_m)
+      out_s = F.interpolate(out_s, (out_m.size(2), out_m.size(3)), mode='bilinear', align_corners=False)
+      out_s = self.ffm_m_layer1(out_s)
+      out_m1 = out_m + out_s * self.ffm_m_layer2(out_s + out_m)
 
-    out_m1 = F.interpolate(out_m1, (out_l.size(2), out_l.size(3)), mode='bilinear', align_corners=False)
-    out_m1 = self.ffm_l_layer1(out_m1)
-    out_l1 = out_l + out_m1 * self.ffm_l_layer2(out_m1 + out_l)
+      out_m1 = F.interpolate(out_m1, (out_l.size(2), out_l.size(3)), mode='bilinear', align_corners=False)
+      out_m1 = self.ffm_l_layer1(out_m1)
+      out_l1 = out_l + out_m1 * self.ffm_l_layer2(out_m1 + out_l)
 
-    out_l1 = self.classif_l(out_l1)
-    out_l1 = F.interpolate(out_l1, (left.size(2), left.size(3)), mode='bilinear', align_corners=False)
+      out_l1 = self.classif_l(out_l1)
+      out_l1 = F.interpolate(out_l1, (left.size(2), left.size(3)), mode='bilinear', align_corners=False)
 
-    prob = F.softmax(out_l1, dim=1)
-    pred = disparityregression(self.maxdisp)(prob)
+      prob = F.softmax(out_l1, dim=1)
+      pred = disparityregression(self.maxdisp)(prob)
 
-    return pred
-
+      return pred
